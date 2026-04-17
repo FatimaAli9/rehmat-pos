@@ -8,9 +8,11 @@ import plotly.express as px
 
 st.set_page_config(page_title="Rehmat POS", layout="wide")
 
-# ---- Google Sheets Connection ----
-scope = ["https://spreadsheets.google.com/feeds",
-         "https://www.googleapis.com/auth/drive"]
+# ================= GOOGLE SHEETS =================
+scope = [
+    "https://spreadsheets.google.com/feeds",
+    "https://www.googleapis.com/auth/drive"
+]
 
 creds_dict = st.secrets["gcp_service_account"]
 creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
@@ -21,14 +23,22 @@ sheet = client.open("Rehmat_POS")
 inventory_sheet = sheet.worksheet("Inventory")
 sales_sheet = sheet.worksheet("Sales")
 
-# ---- Load Data ----
+# ================= LOAD DATA =================
 def load_data():
     inventory = pd.DataFrame(inventory_sheet.get_all_records())
     sales = pd.DataFrame(sales_sheet.get_all_records())
+
+    if not inventory.empty:
+        inventory["quantity"] = pd.to_numeric(inventory["quantity"], errors="coerce").fillna(0)
+
+    if not sales.empty:
+        sales["profit"] = pd.to_numeric(sales["profit"], errors="coerce").fillna(0)
+
     return inventory, sales
 
 inventory, sales = load_data()
 
+# ================= HEADER =================
 col1, col2 = st.columns([1, 5])
 
 with col1:
@@ -54,19 +64,17 @@ if menu == "Dashboard":
     col2.metric("Total Stock", total_stock)
     col3.metric("Total Profit", f"Rs. {total_profit}")
 
-    # ---- Low Stock Alert ----
     st.subheader("🚨 Low Stock Products")
     if not inventory.empty:
         low_stock = inventory[inventory["quantity"] < 5]
-        if not low_stock.empty:
-            st.dataframe(low_stock)
-        else:
+        st.dataframe(low_stock if not low_stock.empty else pd.DataFrame())
+        if low_stock.empty:
             st.success("All products have sufficient stock!")
 
-    # ---- Sales Chart ----
     if not sales.empty:
         st.subheader("📈 Daily Profit Trend")
-        sales["date"] = pd.to_datetime(sales["date"])
+
+        sales["date"] = pd.to_datetime(sales["date"], errors="coerce")
         daily_profit = sales.groupby("date")["profit"].sum().reset_index()
 
         fig = px.line(daily_profit, x="date", y="profit", title="Daily Profit")
@@ -84,7 +92,13 @@ elif menu == "Inventory":
 
     if st.button("Add Product"):
         if product_id and name:
-            inventory_sheet.append_row([product_id, name, category, cost_price, quantity])
+            inventory_sheet.append_row([
+                product_id,
+                name,
+                category,
+                float(cost_price),
+                int(quantity)
+            ])
             st.success("✅ Product Added!")
             st.rerun()
         else:
@@ -128,15 +142,19 @@ elif menu == "Sales":
             if quantity > selected_product["quantity"]:
                 st.error("❌ Not enough stock!")
             else:
-                cost_price = selected_product["cost_price"]
+                cost_price = float(selected_product["cost_price"])
+                quantity = int(quantity)
+                sale_price = float(sale_price)
+
                 profit = (sale_price - cost_price) * quantity
 
-                # Update stock
-                new_qty = selected_product["quantity"] - quantity
-                cell = inventory_sheet.find(str(product))
-                inventory_sheet.update_cell(cell.row, 5, new_qty)
+                # safe stock update
+                new_qty = int(selected_product["quantity"] - quantity)
 
-                # Save sale
+                cell = inventory_sheet.find(str(product))
+                inventory_sheet.update_cell(cell.row, 5, str(new_qty))
+
+                # save sale
                 sales_sheet.append_row([
                     datetime.now().strftime("%Y-%m-%d"),
                     product,
@@ -148,16 +166,14 @@ elif menu == "Sales":
                 st.success(f"✅ Sale recorded! Profit: Rs. {profit}")
                 st.rerun()
 
-    # ---- Sales History ----
     st.subheader("📊 Sales History")
     sales = pd.DataFrame(sales_sheet.get_all_records())
     st.dataframe(sales)
 
-    # ---- Daily Summary ----
     st.subheader("📅 Today's Summary")
 
     if not sales.empty:
-        sales["date"] = pd.to_datetime(sales["date"])
+        sales["date"] = pd.to_datetime(sales["date"], errors="coerce")
         today = pd.Timestamp.today().date()
 
         today_sales = sales[sales["date"].dt.date == today]
