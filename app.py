@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import json
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
@@ -11,7 +12,8 @@ st.set_page_config(page_title="Rehmat POS", layout="wide")
 scope = ["https://spreadsheets.google.com/feeds",
          "https://www.googleapis.com/auth/drive"]
 
-creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+creds_dict = st.secrets["gcp_service_account"]
+creds = ServiceAccountCredentials.from_json_keyfile_from_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 
 sheet = client.open("Rehmat_POS")
