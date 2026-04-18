@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import json
 import gspread
-import time
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 import plotly.express as px
@@ -21,17 +20,11 @@ client = gspread.authorize(creds)
 
 sheet = client.open("Rehmat_POS")
 
-# safe worksheet loading
-try:
-    inventory_sheet = sheet.worksheet("Inventory")
-    sales_sheet = sheet.worksheet("Sales")
-    expenses_sheet = sheet.worksheet("Expenses")
-except:
-    st.error("❌ Sheet tabs missing! Check names: Inventory, Sales, Expenses")
-    st.stop()
+inventory_sheet = sheet.worksheet("Inventory")
+sales_sheet = sheet.worksheet("Sales")
+expenses_sheet = sheet.worksheet("Expenses")
 
 # ================= LOAD DATA =================
-@st.cache_data(ttl=5)
 def load_data():
     inventory = pd.DataFrame(inventory_sheet.get_all_records())
     sales = pd.DataFrame(sales_sheet.get_all_records())
@@ -70,16 +63,22 @@ if menu == "Dashboard":
 
     inventory, sales, expenses = load_data()
 
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Products", len(inventory))
-    col2.metric("Stock", inventory["quantity"].sum() if not inventory.empty else 0)
-    col3.metric("Profit", f"Rs. {sales['profit'].sum() if not sales.empty else 0}")
-    col4.metric("Expenses", f"Rs. {expenses['amount'].sum() if not expenses.empty else 0}")
+    total_products = len(inventory)
+    total_stock = inventory["quantity"].sum() if not inventory.empty else 0
+    total_profit = sales["profit"].sum() if not sales.empty else 0
+    total_expense = expenses["amount"].sum() if not expenses.empty else 0
 
-    # DAILY
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Products", total_products)
+    col2.metric("Stock", total_stock)
+    col3.metric("Profit", f"Rs. {total_profit}")
+    col4.metric("Expenses", f"Rs. {total_expense}")
+
+    # ===== DAILY SUMMARY =====
     st.subheader("📅 Today Summary")
 
     today = pd.Timestamp.today().date()
+
     today_profit = 0
     today_exp = 0
 
@@ -91,10 +90,37 @@ if menu == "Dashboard":
         expenses["date"] = pd.to_datetime(expenses["date"], errors="coerce")
         today_exp = expenses[expenses["date"].dt.date == today]["amount"].sum()
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Today's Profit", f"Rs. {today_profit}")
-    c2.metric("Today's Expense", f"Rs. {today_exp}")
-    c3.metric("Net", f"Rs. {today_profit - today_exp}")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Today's Profit", f"Rs. {today_profit}")
+    col2.metric("Today's Expense", f"Rs. {today_exp}")
+    col3.metric("Net", f"Rs. {today_profit - today_exp}")
+
+    # ===== MONTHLY =====
+    st.subheader("📆 Monthly Analysis")
+
+    if not sales.empty:
+        sales["month"] = pd.to_datetime(sales["date"]).dt.to_period("M")
+        monthly_profit = sales.groupby("month")["profit"].sum().reset_index()
+
+        fig = px.bar(monthly_profit, x="month", y="profit", title="Monthly Profit")
+        st.plotly_chart(fig, use_container_width=True)
+
+    if not expenses.empty:
+        expenses["month"] = pd.to_datetime(expenses["date"]).dt.to_period("M")
+        monthly_exp = expenses.groupby("month")["amount"].sum().reset_index()
+
+        fig2 = px.bar(monthly_exp, x="month", y="amount", title="Monthly Expenses")
+        st.plotly_chart(fig2, use_container_width=True)
+
+    # ===== LOW STOCK =====
+    st.subheader("🚨 Low Stock")
+
+    if not inventory.empty:
+        low_stock = inventory[inventory["quantity"] < 5]
+        if not low_stock.empty:
+            st.dataframe(low_stock)
+        else:
+            st.success("All stock is sufficient")
 
 # ================= INVENTORY =================
 elif menu == "Inventory":
@@ -108,7 +134,6 @@ elif menu == "Inventory":
 
     if st.button("Add Product"):
         if product_id and name:
-            time.sleep(1)
             inventory_sheet.append_row([
                 product_id,
                 name,
@@ -117,12 +142,14 @@ elif menu == "Inventory":
                 int(quantity)
             ])
             st.success("✅ Product Added!")
-            st.cache_data.clear()
+            st.rerun()
         else:
             st.error("Fill all fields")
 
     st.subheader("📋 Inventory")
-    st.dataframe(inventory)
+
+    if not inventory.empty:
+        st.dataframe(inventory)
 
 # ================= SALES =================
 elif menu == "Sales":
@@ -155,10 +182,8 @@ elif menu == "Sales":
                 new_qty = int(selected["quantity"] - quantity)
 
                 cell = inventory_sheet.find(str(product))
-                time.sleep(1)
                 inventory_sheet.update_cell(cell.row, 5, str(new_qty))
 
-                time.sleep(1)
                 sales_sheet.append_row([
                     datetime.now().strftime("%Y-%m-%d"),
                     product,
@@ -168,7 +193,7 @@ elif menu == "Sales":
                 ])
 
                 st.success(f"Sale Done | Profit Rs. {profit}")
-                st.cache_data.clear()
+                st.rerun()
 
     st.subheader("📊 Sales History")
     st.dataframe(pd.DataFrame(sales_sheet.get_all_records()))
@@ -182,14 +207,13 @@ elif menu == "Expenses":
 
     if st.button("Add Expense"):
         if desc and amount > 0:
-            time.sleep(1)
             expenses_sheet.append_row([
                 datetime.now().strftime("%Y-%m-%d"),
                 desc,
                 float(amount)
             ])
             st.success("Expense Added")
-            st.cache_data.clear()
+            st.rerun()
         else:
             st.error("Enter valid data")
 
