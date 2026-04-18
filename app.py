@@ -263,48 +263,41 @@ elif menu == "Expenses":
 elif menu == "Udhar":
     st.subheader("Udhar Ledger")
 
-    if not udhar.empty:
-        st.dataframe(udhar)
+    # only pending udhar
+    pending_udhar = udhar[udhar["status"] == "pending"]
 
-        st.subheader("Mark as Paid / Received")
+    # ================= MARK AS PAID / RECEIVED =================
+    st.subheader("Update Udhar Status")
 
-        # select record to clear
+    if not pending_udhar.empty:
+
+        # dropdown only pending names
         selected_index = st.selectbox(
-            "Select Udhar Record",
-            udhar.index,
-            format_func=lambda i: f"{udhar.loc[i,'name']} - Rs {udhar.loc[i,'amount']} ({udhar.loc[i,'type']})"
+            "Select Pending Udhar",
+            pending_udhar.index,
+            format_func=lambda i: f"{pending_udhar.loc[i,'name']} - Rs {pending_udhar.loc[i,'amount']} ({pending_udhar.loc[i,'type']})"
         )
 
-        if st.button("Clear (Paid/Received)"):
+        new_status = st.selectbox("Mark as", ["paid", "received"])
+
+        if st.button("Update Status"):
             try:
-                # delete row from sheet (index +2 because of header)
-                udhar_sheet.delete_rows(int(selected_index) + 2)
+                # Google Sheet row number (index + 2 because header)
+                row_number = int(selected_index) + 2
 
-                st.success("Udhar Cleared ✅")
+                # update ONLY status column (column 5 = status)
+                udhar_sheet.update_cell(row_number, 5, new_status)
+
+                st.success("Udhar Updated Successfully ✅")
                 st.cache_data.clear()
                 st.rerun()
-            except:
-                st.error("Error deleting row")
 
-    # ===== ADD NEW UDHAR =====
-    st.subheader("Add New Udhar")
+            except Exception as e:
+                st.error(f"Error: {e}")
 
-    with st.form("udhar_form", clear_on_submit=True):
-        name = st.text_input("Name")
-        amt = st.number_input("Amount", min_value=0.0)
-        action = st.selectbox("Type", ["given","taken"])
+    else:
+        st.info("No pending udhar 🎉")
 
-        submitted = st.form_submit_button("Save")
-
-        if submitted:
-            if name:
-                udhar_sheet.append_row([
-                    datetime.now().strftime("%Y-%m-%d"),
-                    name,
-                    action,
-                    float(amt),
-                    "pending"
-                ])
-                st.success("Saved")
-                st.cache_data.clear()
-                st.rerun()
+    # ================= SHOW TABLE =================
+    st.subheader("All Udhar Records")
+    st.dataframe(udhar)
