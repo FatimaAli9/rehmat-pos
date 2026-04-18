@@ -123,18 +123,21 @@ if menu == "Dashboard":
 elif menu == "Inventory":
     st.subheader("Add Product")
 
-    pid = st.text_input("Product ID")
-    name = st.text_input("Name")
-    cat = st.selectbox("Category", ["Men","Women","Kids"])
-    cost = st.number_input("Cost", min_value=0.0)
-    qty = st.number_input("Quantity", min_value=0)
+    with st.form("inventory_form", clear_on_submit=True):
+        pid = st.text_input("Product ID")
+        name = st.text_input("Name")
+        cat = st.selectbox("Category", ["Men","Women","Kids"])
+        cost = st.number_input("Cost", min_value=0.0)
+        qty = st.number_input("Quantity", min_value=0)
 
-    if st.button("Add Product"):
-        if pid and name:
-            inventory_sheet.append_row([pid,name,cat,float(cost),int(qty)])
-            st.success("Added")
-            st.cache_data.clear()
-            st.rerun()
+        submitted = st.form_submit_button("Add Product")
+
+        if submitted:
+            if pid and name:
+                inventory_sheet.append_row([pid,name,cat,float(cost),int(qty)])
+                st.success("Added")
+                st.cache_data.clear()
+                st.rerun()
 
     st.dataframe(inventory)
 
@@ -176,69 +179,74 @@ elif menu == "Sales":
     else:
         st.info("No sales today")
 
-    # ===== SELL PRODUCT =====
+    # ===== SELL FORM =====
     st.subheader("💰 Record Sale")
 
-    if inventory.empty:
-        st.warning("No products")
-    else:
-        product = st.selectbox("Product", inventory["product_id"].astype(str))
-        selected = inventory[inventory["product_id"].astype(str)==product].iloc[0]
+    if not inventory.empty:
+        with st.form("sales_form", clear_on_submit=True):
 
-        st.info(f"Stock: {int(selected['quantity'])}")
+            product = st.selectbox("Product", inventory["product_id"].astype(str))
+            selected = inventory[inventory["product_id"].astype(str)==product].iloc[0]
 
-        qty = st.number_input("Qty", min_value=1)
-        price = st.number_input("Sale Price", min_value=0.0)
+            st.info(f"Stock: {int(selected['quantity'])}")
 
-        pay_type = st.selectbox("Payment", ["Cash","Udhar"])
-        customer = st.text_input("Customer Name")
+            qty = st.number_input("Qty", min_value=1)
+            price = st.number_input("Sale Price", min_value=0.0)
 
-        if st.button("Sell"):
-            if qty > selected["quantity"]:
-                st.error("Not enough stock")
-            else:
-                profit = (price - selected["cost_price"]) * qty
-                new_qty = int(selected["quantity"] - qty)
+            pay_type = st.selectbox("Payment", ["Cash","Udhar"])
+            customer = st.text_input("Customer Name")
 
-                row_index = inventory[inventory["product_id"].astype(str)==product].index[0] + 2
-                inventory_sheet.update(f"E{row_index}", [[int(new_qty)]])
+            submitted = st.form_submit_button("Sell")
 
-                sales_sheet.append_row([
-                    datetime.now().strftime("%Y-%m-%d"),
-                    product,
-                    int(qty),
-                    float(price),
-                    float(profit)
-                ])
+            if submitted:
+                if qty > selected["quantity"]:
+                    st.error("Not enough stock")
+                else:
+                    profit = (price - selected["cost_price"]) * qty
+                    new_qty = int(selected["quantity"] - qty)
 
-                if pay_type == "Udhar":
-                    udhar_sheet.append_row([
+                    row_index = inventory[inventory["product_id"].astype(str)==product].index[0] + 2
+                    inventory_sheet.update(f"E{row_index}", [[int(new_qty)]])
+
+                    sales_sheet.append_row([
                         datetime.now().strftime("%Y-%m-%d"),
-                        customer,
-                        "given",
-                        float(price*qty),
-                        "pending"
+                        product,
+                        int(qty),
+                        float(price),
+                        float(profit)
                     ])
 
-                st.success("Sale Done")
-                st.cache_data.clear()
-                st.rerun()
+                    if pay_type == "Udhar":
+                        udhar_sheet.append_row([
+                            datetime.now().strftime("%Y-%m-%d"),
+                            customer,
+                            "given",
+                            float(price*qty),
+                            "pending"
+                        ])
+
+                    st.success("Sale Done")
+                    st.cache_data.clear()
+                    st.rerun()
 
 # ================= EXPENSE =================
 elif menu == "Expenses":
-    desc = st.text_input("Description")
-    amt = st.number_input("Amount", min_value=0.0)
+    with st.form("expense_form", clear_on_submit=True):
+        desc = st.text_input("Description")
+        amt = st.number_input("Amount", min_value=0.0)
 
-    if st.button("Add Expense"):
-        if desc:
-            expenses_sheet.append_row([
-                datetime.now().strftime("%Y-%m-%d"),
-                desc,
-                float(amt)
-            ])
-            st.success("Added")
-            st.cache_data.clear()
-            st.rerun()
+        submitted = st.form_submit_button("Add Expense")
+
+        if submitted:
+            if desc:
+                expenses_sheet.append_row([
+                    datetime.now().strftime("%Y-%m-%d"),
+                    desc,
+                    float(amt)
+                ])
+                st.success("Added")
+                st.cache_data.clear()
+                st.rerun()
 
     st.dataframe(expenses)
 
@@ -246,22 +254,24 @@ elif menu == "Expenses":
 elif menu == "Udhar":
     st.subheader("Udhar Ledger")
 
-    name = st.text_input("Name")
-    amt = st.number_input("Amount", min_value=0.0)
+    with st.form("udhar_form", clear_on_submit=True):
+        name = st.text_input("Name")
+        amt = st.number_input("Amount", min_value=0.0)
+        action = st.selectbox("Type", ["given","taken","received","paid"])
 
-    action = st.selectbox("Type", ["given","taken","received","paid"])
+        submitted = st.form_submit_button("Save")
 
-    if st.button("Save"):
-        if name:
-            udhar_sheet.append_row([
-                datetime.now().strftime("%Y-%m-%d"),
-                name,
-                action,
-                float(amt),
-                "done"
-            ])
-            st.success("Saved")
-            st.cache_data.clear()
-            st.rerun()
+        if submitted:
+            if name:
+                udhar_sheet.append_row([
+                    datetime.now().strftime("%Y-%m-%d"),
+                    name,
+                    action,
+                    float(amt),
+                    "done"
+                ])
+                st.success("Saved")
+                st.cache_data.clear()
+                st.rerun()
 
     st.dataframe(udhar)
