@@ -90,7 +90,16 @@ def load_data():
     return inventory, sales, expenses, udhar
 
 # ================= UI =================
-st.title("Rehmat Boot House POS System")
+col1, col2 = st.columns([1, 5])
+
+with col1:
+    try:
+        st.image("logo.png", width=80)
+    except:
+        pass
+
+with col2:
+    st.title("Rehmat Boot House POS System")
 
 menu = st.sidebar.selectbox("Menu", ["Dashboard","Inventory","Sales","Expenses","Udhar"])
 
