@@ -4,11 +4,10 @@ import json
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
-import plotly.express as px
 
 st.set_page_config(page_title="Rehmat POS PRO", layout="wide")
 
-# ================= GOOGLE SHEETS =================
+# ================= GOOGLE CONNECT =================
 @st.cache_resource
 def connect():
     scope = [
@@ -21,53 +20,104 @@ def connect():
     return gspread.authorize(creds)
 
 client = connect()
-sheet = client.open("Rehmat_POS")
 
-inventory_sheet = sheet.worksheet("Inventory")
-sales_sheet = sheet.worksheet("Sales")
-expenses_sheet = sheet.worksheet("Expenses")
-udhar_sheet = sheet.worksheet("Udhar")
+# ================= OPEN / CREATE SHEET =================
+def get_or_create_sheet(name, headers):
+    try:
+        ws = sheet.worksheet(name)
+        data = ws.get_all_values()
 
-# ================= LOAD DATA =================
-@st.cache_data(ttl=5)
+        if len(data) == 0:
+            ws.append_row(headers)
+        else:
+            # fix headers if missing
+            if data[0] != headers:
+                ws.clear()
+                ws.append_row(headers)
+
+        return ws
+
+    except:
+        ws = sheet.add_worksheet(title=name, rows="1000", cols="20")
+        ws.append_row(headers)
+        return ws
+
+
+# open main spreadsheet
+try:
+    sheet = client.open("Rehmat_POS")
+except:
+    sheet = client.create("Rehmat_POS")
+
+# ================= INIT SHEETS =================
+inventory_sheet = get_or_create_sheet(
+    "Inventory",
+    ["product_id","name","category","cost_price","quantity"]
+)
+
+sales_sheet = get_or_create_sheet(
+    "Sales",
+    ["date","product_id","quantity","sale_price","profit"]
+)
+
+expenses_sheet = get_or_create_sheet(
+    "Expenses",
+    ["date","description","amount"]
+)
+
+udhar_sheet = get_or_create_sheet(
+    "Udhar",
+    ["date","name","type","amount","status"]
+)
+
+# ================= SAFE LOAD =================
+@st.cache_data(ttl=3)
 def load_data():
-    inventory = pd.DataFrame(inventory_sheet.get_all_records())
-    sales = pd.DataFrame(sales_sheet.get_all_records())
-    expenses = pd.DataFrame(expenses_sheet.get_all_records())
-    udhar = pd.DataFrame(udhar_sheet.get_all_records())
+    def read(ws, cols):
+        try:
+            df = pd.DataFrame(ws.get_all_records())
+            if df.empty:
+                return pd.DataFrame(columns=cols)
+            return df
+        except:
+            return pd.DataFrame(columns=cols)
 
-    for df, col in [(inventory, "quantity"), (sales, "profit"),
-                    (expenses, "amount"), (udhar, "amount")]:
-        if not df.empty:
+    inventory = read(inventory_sheet, ["product_id","name","category","cost_price","quantity"])
+    sales = read(sales_sheet, ["date","product_id","quantity","sale_price","profit"])
+    expenses = read(expenses_sheet, ["date","description","amount"])
+    udhar = read(udhar_sheet, ["date","name","type","amount","status"])
+
+    # numeric fix
+    for df, col in [(inventory,"quantity"), (sales,"profit"),
+                    (expenses,"amount"), (udhar,"amount")]:
+        if not df.empty and col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
     return inventory, sales, expenses, udhar
 
-inventory, sales, expenses, udhar = load_data()
-
-# ================= HEADER =================
+# ================= UI =================
 st.title("Rehmat Boot House POS PRO")
 
-menu = st.sidebar.selectbox("Menu", ["Dashboard", "Inventory", "Sales", "Expenses", "Udhar"])
+menu = st.sidebar.selectbox("Menu", ["Dashboard","Inventory","Sales","Expenses","Udhar"])
+
+inventory, sales, expenses, udhar = load_data()
 
 # ================= DASHBOARD =================
 if menu == "Dashboard":
-    inventory, sales, expenses, udhar = load_data()
+    total_profit = sales["profit"].sum()
+    total_expense = expenses["amount"].sum()
 
-    total_profit = sales["profit"].sum() if not sales.empty else 0
-    total_expense = expenses["amount"].sum() if not expenses.empty else 0
-
-    given = udhar[udhar["type"] == "given"]["amount"].sum() if not udhar.empty else 0
-    taken = udhar[udhar["type"] == "taken"]["amount"].sum() if not udhar.empty else 0
-    paid = udhar[udhar["type"] == "paid"]["amount"].sum() if not udhar.empty else 0
-    received = udhar[udhar["type"] == "received"]["amount"].sum() if not udhar.empty else 0
+    given = udhar[udhar["type"]=="given"]["amount"].sum()
+    taken = udhar[udhar["type"]=="taken"]["amount"].sum()
+    paid = udhar[udhar["type"]=="paid"]["amount"].sum()
+    received = udhar[udhar["type"]=="received"]["amount"].sum()
 
     payable = taken - paid
     receivable = given - received
 
     net = total_profit - total_expense - payable + receivable
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1,c2,c3,c4 = st.columns(4)
     c1.metric("Profit", f"Rs {int(total_profit)}")
     c2.metric("Expenses", f"Rs {int(total_expense)}")
     c3.metric("You Will Get", f"Rs {int(receivable)}")
@@ -81,34 +131,33 @@ elif menu == "Inventory":
 
     pid = st.text_input("Product ID")
     name = st.text_input("Name")
-    cat = st.selectbox("Category", ["Men", "Women", "Kids"])
+    cat = st.selectbox("Category", ["Men","Women","Kids"])
     cost = st.number_input("Cost", min_value=0.0)
     qty = st.number_input("Quantity", min_value=0)
 
-    if st.button("Add"):
-        inventory_sheet.append_row([pid, name, cat, float(cost), int(qty)])
-        st.success("Added")
-        st.cache_data.clear()
-        st.rerun()
+    if st.button("Add Product"):
+        if pid and name:
+            inventory_sheet.append_row([pid,name,cat,float(cost),int(qty)])
+            st.success("Added")
+            st.cache_data.clear()
+            st.rerun()
 
     st.dataframe(inventory)
 
 # ================= SALES =================
 elif menu == "Sales":
-    inventory, sales, expenses, udhar = load_data()
-
     if inventory.empty:
         st.warning("No products")
     else:
         product = st.selectbox("Product", inventory["product_id"].astype(str))
-        selected = inventory[inventory["product_id"].astype(str) == product].iloc[0]
+        selected = inventory[inventory["product_id"].astype(str)==product].iloc[0]
 
         st.info(f"Stock: {int(selected['quantity'])}")
 
         qty = st.number_input("Qty", min_value=1)
         price = st.number_input("Sale Price", min_value=0.0)
 
-        pay_type = st.selectbox("Payment", ["Cash", "Udhar"])
+        pay_type = st.selectbox("Payment", ["Cash","Udhar"])
         customer = st.text_input("Customer Name")
 
         if st.button("Sell"):
@@ -118,11 +167,9 @@ elif menu == "Sales":
                 profit = (price - selected["cost_price"]) * qty
                 new_qty = int(selected["quantity"] - qty)
 
-                # ==== SAFE ROW INDEX ====
-                row_index = inventory[inventory["product_id"].astype(str) == str(product)].index[0] + 2
-
-                # ==== BATCH UPDATE ====
-                inventory_sheet.update(f"E{row_index}", [[new_qty]])
+                # SAFE ROW UPDATE
+                row_index = inventory[inventory["product_id"].astype(str)==product].index[0] + 2
+                inventory_sheet.update(f"E{row_index}", [[int(new_qty)]])
 
                 sales_sheet.append_row([
                     datetime.now().strftime("%Y-%m-%d"),
@@ -137,28 +184,31 @@ elif menu == "Sales":
                         datetime.now().strftime("%Y-%m-%d"),
                         customer,
                         "given",
-                        float(price * qty),
+                        float(price*qty),
                         "pending"
                     ])
 
-                st.success("Done")
+                st.success("Sale Done")
                 st.cache_data.clear()
                 st.rerun()
 
 # ================= EXPENSE =================
 elif menu == "Expenses":
-    desc = st.text_input("Desc")
+    desc = st.text_input("Description")
     amt = st.number_input("Amount", min_value=0.0)
 
-    if st.button("Add"):
-        expenses_sheet.append_row([
-            datetime.now().strftime("%Y-%m-%d"),
-            desc,
-            float(amt)
-        ])
-        st.success("Added")
-        st.cache_data.clear()
-        st.rerun()
+    if st.button("Add Expense"):
+        if desc:
+            expenses_sheet.append_row([
+                datetime.now().strftime("%Y-%m-%d"),
+                desc,
+                float(amt)
+            ])
+            st.success("Added")
+            st.cache_data.clear()
+            st.rerun()
+
+    st.dataframe(expenses)
 
 # ================= UDHAR =================
 elif menu == "Udhar":
@@ -167,18 +217,19 @@ elif menu == "Udhar":
     name = st.text_input("Name")
     amt = st.number_input("Amount", min_value=0.0)
 
-    action = st.selectbox("Type", ["Given", "Taken", "Received", "Paid"])
+    action = st.selectbox("Type", ["given","taken","received","paid"])
 
     if st.button("Save"):
-        udhar_sheet.append_row([
-            datetime.now().strftime("%Y-%m-%d"),
-            name,
-            action.lower(),
-            float(amt),
-            "done"
-        ])
-        st.success("Saved")
-        st.cache_data.clear()
-        st.rerun()
+        if name:
+            udhar_sheet.append_row([
+                datetime.now().strftime("%Y-%m-%d"),
+                name,
+                action,
+                float(amt),
+                "done"
+            ])
+            st.success("Saved")
+            st.cache_data.clear()
+            st.rerun()
 
     st.dataframe(udhar)
