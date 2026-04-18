@@ -263,10 +263,36 @@ elif menu == "Expenses":
 elif menu == "Udhar":
     st.subheader("Udhar Ledger")
 
+    if not udhar.empty:
+        st.dataframe(udhar)
+
+        st.subheader("Mark as Paid / Received")
+
+        # select record to clear
+        selected_index = st.selectbox(
+            "Select Udhar Record",
+            udhar.index,
+            format_func=lambda i: f"{udhar.loc[i,'name']} - Rs {udhar.loc[i,'amount']} ({udhar.loc[i,'type']})"
+        )
+
+        if st.button("Clear (Paid/Received)"):
+            try:
+                # delete row from sheet (index +2 because of header)
+                udhar_sheet.delete_rows(int(selected_index) + 2)
+
+                st.success("Udhar Cleared ✅")
+                st.cache_data.clear()
+                st.rerun()
+            except:
+                st.error("Error deleting row")
+
+    # ===== ADD NEW UDHAR =====
+    st.subheader("Add New Udhar")
+
     with st.form("udhar_form", clear_on_submit=True):
         name = st.text_input("Name")
         amt = st.number_input("Amount", min_value=0.0)
-        action = st.selectbox("Type", ["given","taken","received","paid"])
+        action = st.selectbox("Type", ["given","taken"])
 
         submitted = st.form_submit_button("Save")
 
@@ -277,10 +303,8 @@ elif menu == "Udhar":
                     name,
                     action,
                     float(amt),
-                    "done"
+                    "pending"
                 ])
                 st.success("Saved")
                 st.cache_data.clear()
                 st.rerun()
-
-    st.dataframe(udhar)
