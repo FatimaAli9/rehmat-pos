@@ -22,6 +22,11 @@ def connect():
 client = connect()
 
 # ================= OPEN / CREATE SHEET =================
+try:
+    sheet = client.open("Rehmat_POS")
+except:
+    sheet = client.create("Rehmat_POS")
+
 def get_or_create_sheet(name, headers):
     try:
         ws = sheet.worksheet(name)
@@ -29,25 +34,15 @@ def get_or_create_sheet(name, headers):
 
         if len(data) == 0:
             ws.append_row(headers)
-        else:
-            # fix headers if missing
-            if data[0] != headers:
-                ws.clear()
-                ws.append_row(headers)
+        elif data[0] != headers:
+            ws.clear()
+            ws.append_row(headers)
 
         return ws
-
     except:
         ws = sheet.add_worksheet(title=name, rows="1000", cols="20")
         ws.append_row(headers)
         return ws
-
-
-# open main spreadsheet
-try:
-    sheet = client.open("Rehmat_POS")
-except:
-    sheet = client.create("Rehmat_POS")
 
 # ================= INIT SHEETS =================
 inventory_sheet = get_or_create_sheet(
@@ -70,7 +65,7 @@ udhar_sheet = get_or_create_sheet(
     ["date","name","type","amount","status"]
 )
 
-# ================= SAFE LOAD =================
+# ================= LOAD DATA =================
 @st.cache_data(ttl=3)
 def load_data():
     def read(ws, cols):
@@ -87,7 +82,6 @@ def load_data():
     expenses = read(expenses_sheet, ["date","description","amount"])
     udhar = read(udhar_sheet, ["date","name","type","amount","status"])
 
-    # numeric fix
     for df, col in [(inventory,"quantity"), (sales,"profit"),
                     (expenses,"amount"), (udhar,"amount")]:
         if not df.empty and col in df.columns:
@@ -96,7 +90,7 @@ def load_data():
     return inventory, sales, expenses, udhar
 
 # ================= UI =================
-st.title("Rehmat Boot House POS PRO")
+st.title("Rehmat Boot House POS System")
 
 menu = st.sidebar.selectbox("Menu", ["Dashboard","Inventory","Sales","Expenses","Udhar"])
 
@@ -146,6 +140,45 @@ elif menu == "Inventory":
 
 # ================= SALES =================
 elif menu == "Sales":
+
+    # ===== TODAY SUMMARY =====
+    st.subheader("📊 Today's Sales Summary")
+
+    today = pd.to_datetime(datetime.now().strftime("%Y-%m-%d"))
+
+    if not sales.empty:
+        sales["date"] = pd.to_datetime(sales["date"], errors="coerce")
+        today_sales = sales[sales["date"].dt.date == today.date()].copy()
+
+        total_revenue = (today_sales["sale_price"] * today_sales["quantity"]).sum()
+        total_profit = today_sales["profit"].sum()
+        total_items = today_sales["quantity"].sum()
+    else:
+        today_sales = pd.DataFrame()
+        total_revenue = total_profit = total_items = 0
+
+    c1,c2,c3 = st.columns(3)
+    c1.metric("Today's Sales", f"Rs {int(total_revenue)}")
+    c2.metric("Today's Profit", f"Rs {int(total_profit)}")
+    c3.metric("Items Sold", int(total_items))
+
+    # ===== TABLE =====
+    st.subheader("📋 Today's Sales Details")
+
+    if not today_sales.empty:
+        today_sales["revenue"] = today_sales["sale_price"] * today_sales["quantity"]
+        today_sales = today_sales.sort_values(by="date", ascending=False)
+
+        st.dataframe(
+            today_sales[["date","product_id","quantity","sale_price","revenue","profit"]],
+            use_container_width=True
+        )
+    else:
+        st.info("No sales today")
+
+    # ===== SELL PRODUCT =====
+    st.subheader("💰 Record Sale")
+
     if inventory.empty:
         st.warning("No products")
     else:
@@ -167,7 +200,6 @@ elif menu == "Sales":
                 profit = (price - selected["cost_price"]) * qty
                 new_qty = int(selected["quantity"] - qty)
 
-                # SAFE ROW UPDATE
                 row_index = inventory[inventory["product_id"].astype(str)==product].index[0] + 2
                 inventory_sheet.update(f"E{row_index}", [[int(new_qty)]])
 
