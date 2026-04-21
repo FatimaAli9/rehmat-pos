@@ -101,7 +101,7 @@ with col1:
 with col2:
     st.title("Rehmat Boot House POS System")
 
-menu = st.sidebar.selectbox("Menu", ["Dashboard","Inventory","Sales","Expenses","Udhar"])
+menu = st.sidebar.selectbox("Menu", ["Dashboard","Inventory","Sales","Expenses","Loan"])
 
 inventory, sales, expenses, udhar = load_data()
 
@@ -260,19 +260,19 @@ elif menu == "Expenses":
     st.dataframe(expenses)
 
 # ================= UDHAR =================
-elif menu == "Udhar":
-    st.subheader("Udhar Ledger System")
+elif menu == "Loan":
+    st.subheader("Loan Ledger System")
 
     # ================= LOAD PENDING =================
     pending_udhar = udhar[udhar["status"] == "pending"]
 
     # ================= UPDATE EXISTING UDHAR =================
-    st.subheader("Update Udhar Status")
+    st.subheader("Update Loan Status")
 
     if not pending_udhar.empty:
 
         selected_index = st.selectbox(
-            "Select Pending Udhar",
+            "Select Pending Loan",
             pending_udhar.index,
             format_func=lambda i: f"{pending_udhar.loc[i,'name']} | Rs {pending_udhar.loc[i,'amount']} | {pending_udhar.loc[i,'type']}"
         )
@@ -286,7 +286,7 @@ elif menu == "Udhar":
                 # update ONLY status column (5th column)
                 udhar_sheet.update_cell(row_number, 5, new_status)
 
-                st.success("Udhar updated successfully ✅")
+                st.success("Loan updated successfully ✅")
                 st.cache_data.clear()
                 st.rerun()
 
@@ -294,19 +294,19 @@ elif menu == "Udhar":
                 st.error(f"Error updating udhar: {e}")
 
     else:
-        st.info("No pending udhar 🎉")
+        st.info("No pending loan 🎉")
 
     st.divider()
 
     # ================= ADD NEW UDHAR =================
-    st.subheader("Add New Udhar")
+    st.subheader("Add New Loan")
 
     with st.form("udhar_form", clear_on_submit=True):
         name = st.text_input("Customer Name")
         amount = st.number_input("Amount", min_value=0.0)
         udhar_type = st.selectbox("Type", ["given", "taken"])
 
-        submitted = st.form_submit_button("Save Udhar")
+        submitted = st.form_submit_button("Save Loan")
 
         if submitted:
             if name:
@@ -318,12 +318,12 @@ elif menu == "Udhar":
                     "pending"
                 ])
 
-                st.success("Udhar added successfully")
+                st.success("Loan added successfully")
                 st.cache_data.clear()
                 st.rerun()
 
     st.divider()
 
     # ================= FULL TABLE =================
-    st.subheader("All Udhar Records")
+    st.subheader("All Loan Records")
     st.dataframe(udhar, use_container_width=True)
