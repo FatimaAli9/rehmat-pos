@@ -60,8 +60,8 @@ expenses_sheet = get_or_create_sheet(
     ["date","description","amount"]
 )
 
-loan_sheet = get_or_create_sheet(
-    "Loan",
+udhar_sheet = get_or_create_sheet(
+    "Udhar",
     ["date","name","type","amount","status"]
 )
 
@@ -80,14 +80,14 @@ def load_data():
     inventory = read(inventory_sheet, ["product_id","name","category","cost_price","quantity"])
     sales = read(sales_sheet, ["date","product_id","quantity","sale_price","profit"])
     expenses = read(expenses_sheet, ["date","description","amount"])
-    loan = read(loan_sheet, ["date","name","type","amount","status"])
+    udhar = read(udhar_sheet, ["date","name","type","amount","status"])
 
     for df, col in [(inventory,"quantity"), (sales,"profit"),
-                    (expenses,"amount"), (loan,"amount")]:
+                    (expenses,"amount"), (udhar,"amount")]:
         if not df.empty and col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
-    return inventory, sales, expenses, loan
+    return inventory, sales, expenses, udhar
 
 # ================= UI =================
 col1, col2 = st.columns([1, 5])
@@ -101,19 +101,19 @@ with col1:
 with col2:
     st.title("Rehmat Boot House POS System")
 
-menu = st.sidebar.selectbox("Menu", ["Dashboard","Inventory","Sales","Expenses","Loan"])
+menu = st.sidebar.selectbox("Menu", ["Dashboard","Inventory","Sales","Expenses","Udhar"])
 
-inventory, sales, expenses, loan = load_data()
+inventory, sales, expenses, udhar = load_data()
 
 # ================= DASHBOARD =================
 if menu == "Dashboard":
     total_profit = sales["profit"].sum()
     total_expense = expenses["amount"].sum()
 
-    given = loan[loan["type"]=="given"]["amount"].sum()
-    taken = loan[loan["type"]=="taken"]["amount"].sum()
-    paid = loan[loan["type"]=="paid"]["amount"].sum()
-    received = loan[loan["type"]=="received"]["amount"].sum()
+    given = udhar[udhar["type"]=="given"]["amount"].sum()
+    taken = udhar[udhar["type"]=="taken"]["amount"].sum()
+    paid = udhar[udhar["type"]=="paid"]["amount"].sum()
+    received = udhar[udhar["type"]=="received"]["amount"].sum()
 
     payable = taken - paid
     receivable = given - received
@@ -153,6 +153,7 @@ elif menu == "Inventory":
 # ================= SALES =================
 elif menu == "Sales":
 
+    # ===== TODAY SUMMARY =====
     st.subheader("📊 Today's Sales Summary")
 
     today = pd.to_datetime(datetime.now().strftime("%Y-%m-%d"))
@@ -173,14 +174,21 @@ elif menu == "Sales":
     c2.metric("Today's Profit", f"Rs {int(total_profit)}")
     c3.metric("Items Sold", int(total_items))
 
+    # ===== TABLE =====
     st.subheader("📋 Today's Sales Details")
 
     if not today_sales.empty:
         today_sales["revenue"] = today_sales["sale_price"] * today_sales["quantity"]
-        st.dataframe(today_sales)
+        today_sales = today_sales.sort_values(by="date", ascending=False)
+
+        st.dataframe(
+            today_sales[["date","product_id","quantity","sale_price","revenue","profit"]],
+            use_container_width=True
+        )
     else:
         st.info("No sales today")
 
+    # ===== SELL FORM =====
     st.subheader("💰 Record Sale")
 
     if not inventory.empty:
@@ -194,7 +202,7 @@ elif menu == "Sales":
             qty = st.number_input("Qty", min_value=1)
             price = st.number_input("Sale Price", min_value=0.0)
 
-            pay_type = st.selectbox("Payment", ["Cash","Loan"])
+            pay_type = st.selectbox("Payment", ["Cash","Udhar"])
             customer = st.text_input("Customer Name")
 
             submitted = st.form_submit_button("Sell")
@@ -217,8 +225,8 @@ elif menu == "Sales":
                         float(profit)
                     ])
 
-                    if pay_type == "Loan":
-                        loan_sheet.append_row([
+                    if pay_type == "Udhar":
+                        udhar_sheet.append_row([
                             datetime.now().strftime("%Y-%m-%d"),
                             customer,
                             "given",
@@ -251,26 +259,71 @@ elif menu == "Expenses":
 
     st.dataframe(expenses)
 
-# ================= LOAN =================
-elif menu == "Loan":
-    st.subheader("Loan Ledger System")
+# ================= UDHAR =================
+elif menu == "Udhar":
+    st.subheader("Udhar Ledger System")
 
-    pending_loan = loan[loan["status"] == "pending"]
+    # ================= LOAD PENDING =================
+    pending_udhar = udhar[udhar["status"] == "pending"]
 
-    if not pending_loan.empty:
+    # ================= UPDATE EXISTING UDHAR =================
+    st.subheader("Update Udhar Status")
+
+    if not pending_udhar.empty:
+
         selected_index = st.selectbox(
-            "Select Pending Loan",
-            pending_loan.index,
-            format_func=lambda i: f"{pending_loan.loc[i,'name']} | Rs {pending_loan.loc[i,'amount']}"
+            "Select Pending Udhar",
+            pending_udhar.index,
+            format_func=lambda i: f"{pending_udhar.loc[i,'name']} | Rs {pending_udhar.loc[i,'amount']} | {pending_udhar.loc[i,'type']}"
         )
 
         new_status = st.selectbox("Mark As", ["paid", "received"])
 
         if st.button("Update Status"):
-            row_number = int(selected_index) + 2
-            loan_sheet.update_cell(row_number, 5, new_status)
-            st.success("Updated")
-            st.cache_data.clear()
-            st.rerun()
+            try:
+                row_number = int(selected_index) + 2  # sheet row mapping
 
-    st.dataframe(loan)
+                # update ONLY status column (5th column)
+                udhar_sheet.update_cell(row_number, 5, new_status)
+
+                st.success("Udhar updated successfully ✅")
+                st.cache_data.clear()
+                st.rerun()
+
+            except Exception as e:
+                st.error(f"Error updating udhar: {e}")
+
+    else:
+        st.info("No pending udhar 🎉")
+
+    st.divider()
+
+    # ================= ADD NEW UDHAR =================
+    st.subheader("Add New Udhar")
+
+    with st.form("udhar_form", clear_on_submit=True):
+        name = st.text_input("Customer Name")
+        amount = st.number_input("Amount", min_value=0.0)
+        udhar_type = st.selectbox("Type", ["given", "taken"])
+
+        submitted = st.form_submit_button("Save Udhar")
+
+        if submitted:
+            if name:
+                udhar_sheet.append_row([
+                    datetime.now().strftime("%Y-%m-%d"),
+                    name,
+                    udhar_type,
+                    float(amount),
+                    "pending"
+                ])
+
+                st.success("Udhar added successfully")
+                st.cache_data.clear()
+                st.rerun()
+
+    st.divider()
+
+    # ================= FULL TABLE =================
+    st.subheader("All Udhar Records")
+    st.dataframe(udhar, use_container_width=True)
